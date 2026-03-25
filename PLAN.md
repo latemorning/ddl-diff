@@ -36,8 +36,9 @@
 ## 4. 상세 구현 가이드 및 유의사항 (중요)
 
 ### 4.1 파싱 및 필터링 전략
--   **문장 분리 방식 및 한계**: `re.split(r';\s*(?:\r\n|\n|\r)', ddl_script)` 정규식을 사용하여 문장을 분리합니다. 단순 세미콜론 분리는 함수 내부의 세미콜론과 충돌할 위험이 있어 줄바꿈 결합 형태를 기준으로 합니다.
-    -   *(주의)* 이 방식도 완벽하지 않으므로, 향후 pglast의 `parse_sql()` 전체 파싱 기능을 활용하는 방식을 우선 고려합니다.
+-   **문장 분리 방식**: 전체 파일 `parse_sql()`을 우선 시도하고, 실패 시 `_split_statements()`로 fallback합니다.
+    -   **전체 파일 파싱 시 raw SQL 추출**: `stmt_len`이 긴 함수 본문에서 짧은 값을 반환하는 pglast 버그가 있으므로, `stmt_len` 대신 **다음 statement의 `stmt_location`을 end로 사용**합니다 (마지막 statement는 파일 끝까지).
+    -   **`_split_statements()` 달러쿼트 감지**: `sql_text.find("$", i+1)` 방식은 파일 전체에서 임의의 `$`를 찾아 잘못된 태그를 생성하는 버그가 있습니다. 반드시 `_DOLLAR_TAG_RE = re.compile(r'\$([A-Za-z0-9_]*)\$')` 정규식으로 유효한 달러쿼트 태그만 인식해야 합니다.
 -   **오류에 강건한 처리**: 특정 문장 파싱 실패 시 `failed_statements` 리스트에 저장하고 `result_log.sql` 하단에 주석으로 기록하여 전체 프로세스를 중단시키지 않습니다. 이때, **상세 에러 로그 대신 파싱에 실패한 객체의 유형과 이름만 간결하게 기록합니다 (예: `/* PARSING FAILED: [TABLE] my_table */`).** 파싱 실패는 `try/except pglast.Error`로 처리합니다.
 - **사전 필터링 불필요**: `pglast`는 PostgreSQL 네이티브 파서를 사용하므로 `INHERITS`, `PARTITION OF`, `PARTITION BY`, `::` 타입 캐스팅 등 PostgreSQL 고유 문법을 직접 파싱합니다. 파싱 전 문자열 수준 사전 필터링이 필요하지 않습니다.
 - **파티션 테이블 및 뷰 제외 로직**: 파싱 후 노드 타입으로 판별하여 제외합니다.
