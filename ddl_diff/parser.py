@@ -1,6 +1,9 @@
 from __future__ import annotations
 import re
 import pglast
+
+# Matches a valid PostgreSQL dollar-quote tag: $identifier$ or $$
+_DOLLAR_TAG_RE = re.compile(r'\$([A-Za-z0-9_]*)\$')
 from pglast import parse_sql
 from pglast.ast import (
     CreateStmt, ViewStmt, CreateTrigStmt, CommentStmt,
@@ -26,12 +29,18 @@ def parse_ddl(sql_text: str) -> tuple[list[tuple[object, str]], list[tuple[str, 
     # Try whole-file parse first (most accurate)
     try:
         raw_stmts = parse_sql(sql_text)
-        for raw in raw_stmts:
+        n = len(raw_stmts)
+        for idx, raw in enumerate(raw_stmts):
             try:
-                # stmt_location and stmt_len are CHARACTER offsets (not byte offsets)
+                # Use next statement's start position as this statement's end.
+                # pglast's stmt_len can be shorter than the actual statement for
+                # complex bodies (e.g. long dollar-quoted functions), so using
+                # the next stmt_location gives the correct full raw text.
                 start = raw.stmt_location or 0
-                length = raw.stmt_len or 0
-                end = start + length if length else len(sql_text)
+                if idx + 1 < n and raw_stmts[idx + 1].stmt_location:
+                    end = raw_stmts[idx + 1].stmt_location
+                else:
+                    end = len(sql_text)
                 raw_text = sql_text[start:end].strip()
 
                 stmt = raw.stmt
@@ -70,7 +79,7 @@ def parse_ddl(sql_text: str) -> tuple[list[tuple[object, str]], list[tuple[str, 
 def _split_statements(sql_text: str) -> list[str]:
     """
     Split SQL text into individual statements, respecting dollar-quoted strings.
-    A semicolon followed by a newline (outside dollar quotes) marks statement boundaries.
+    Uses regex-based dollar-quote tag matching to correctly handle $$ and $tag$ delimiters.
     """
     statements = []
     current: list[str] = []
@@ -80,27 +89,33 @@ def _split_statements(sql_text: str) -> list[str]:
     n = len(sql_text)
 
     while i < n:
-        # Check for dollar-quote start/end
-        if sql_text[i] == "$":
-            # Find the matching closing $
-            j = sql_text.find("$", i + 1)
-            if j != -1:
-                tag = sql_text[i:j + 1]
-                if not in_dollar_quote:
-                    in_dollar_quote = True
-                    dollar_tag = tag
-                    current.append(sql_text[i:j + 1])
-                    i = j + 1
-                    continue
-                elif tag == dollar_tag:
+        ch = sql_text[i]
+
+        if in_dollar_quote:
+            # Only exit on the exact matching closing tag
+            if ch == "$":
+                m = _DOLLAR_TAG_RE.match(sql_text, i)
+                if m and m.group(0) == dollar_tag:
+                    current.append(m.group(0))
+                    i = m.end()
                     in_dollar_quote = False
                     dollar_tag = ""
-                    current.append(sql_text[i:j + 1])
-                    i = j + 1
                     continue
+            current.append(ch)
+            i += 1
+            continue
 
-        if not in_dollar_quote and sql_text[i] == ";":
-            # Statement boundary
+        # Outside dollar-quote: check for opening tag
+        if ch == "$":
+            m = _DOLLAR_TAG_RE.match(sql_text, i)
+            if m:
+                in_dollar_quote = True
+                dollar_tag = m.group(0)
+                current.append(m.group(0))
+                i = m.end()
+                continue
+
+        if ch == ";":
             current.append(";")
             stmt = "".join(current).strip()
             if stmt and stmt != ";":
@@ -109,7 +124,7 @@ def _split_statements(sql_text: str) -> list[str]:
             i += 1
             continue
 
-        current.append(sql_text[i])
+        current.append(ch)
         i += 1
 
     # Remaining text
