@@ -51,6 +51,7 @@
     -   **삭제(DROP)**: `FK` → `TABLE` 순서로 역순 처리 (기본적으로 주석 처리됨)
 -   **제약 조건/인덱스 수정**: 기존 객체를 `DROP`(주석 처리)하고 새 객체를 `CREATE`하는 방식으로 처리합니다.
 - **함수**: 정의(`Definition`) 전체를 문자열로 비교합니다. 이때 **연속된 공백 문자(공백, 탭, 줄바꿈 등 1칸 이상)를 단일 공백으로 치환(Normalization)**하여 단순 포맷팅 차이는 무시하고 실제 로직의 차이만 감지하도록 합니다. 차이가 있을 경우 전체 구문을 다시 생성합니다.
+    -   **변경 위치 표시**: MODIFY 검출 시 `_first_diff_excerpt(tgt_body, src_body)` 함수로 첫 번째 차이 위치(char N)와 전후 문맥(±60자)을 `-- Changed: first diff at char N:\n--   was: ...\n--   now: ...` 형식으로 기록합니다. 한쪽이 더 길 경우 `source/target has extra content at char N` 형식으로 기록합니다.
 - **시퀀스 수정 (`MODIFY`)**: PostgreSQL에는 `CREATE OR REPLACE SEQUENCE`가 없으므로 `CREATE SEQUENCE`를 그대로 사용하면 이미 존재하는 시퀀스에서 오류가 발생합니다. **반드시 `ALTER SEQUENCE`를 사용해야 합니다.**
     -   비교는 정규화된 정의 문자열(`normalized_body`)로 수행하고, 변경이 감지되면 `ALTER SEQUENCE`로 동기화합니다.
     -   `ALTER SEQUENCE` 생성 시 소스의 모든 옵션을 명시적으로 지정하고, 소스에 없는 옵션은 PostgreSQL 기본값으로 리셋합니다 (예: `NO MAXVALUE`, `CACHE 1`, `NO CYCLE`).

@@ -372,11 +372,29 @@ def _compare_functions(src: SchemaSnapshot, tgt: SchemaSnapshot) -> list[SyncCom
         sf = src.functions[name]
         tf = tgt.functions[name]
         if sf.normalized_body != tf.normalized_body:
+            diff_note = _first_diff_excerpt(tf.normalized_body, sf.normalized_body)
             cmds.append(SyncCommand(
                 operation="MODIFY", object_type="FUNCTION", object_name=name,
                 sql=sf.normalized_body.rstrip(";") + ";",
-                previous=f"(see target snapshot)",
-                new=f"(see source snapshot)",
+                previous=diff_note,
             ))
 
     return cmds
+
+
+def _first_diff_excerpt(s1: str, s2: str, window: int = 60) -> str:
+    """Return an excerpt around the first differing position between two strings."""
+    for i, (c1, c2) in enumerate(zip(s1, s2)):
+        if c1 != c2:
+            start = max(0, i - window)
+            prefix = "..." if start > 0 else ""
+            was = prefix + s1[start:i + window]
+            now = prefix + s2[start:i + window]
+            return f"first diff at char {i}:\n  was: {was}\n  now: {now}"
+    # One string is a prefix of the other
+    if len(s1) != len(s2):
+        shorter, longer = ("target", "source") if len(s1) < len(s2) else ("source", "target")
+        extra_start = min(len(s1), len(s2))
+        extra = (s1 if len(s1) > len(s2) else s2)[extra_start:extra_start + window]
+        return f"{longer} has extra content at char {extra_start}: {extra}..."
+    return "whitespace/formatting only"
