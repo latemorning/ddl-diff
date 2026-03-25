@@ -12,5 +12,8 @@ wheels/
 # Generated output
 script/
 
+# SQL input files (may contain sensitive schema info)
+*.sql
+
 # Local Claude AI session data
 .claude/
